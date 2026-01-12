@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  # 1. Base de données PostgreSQL
+  db:
+    image: postgres:15
+    container_name: cac40_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - finance-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. ETL (Script Python)
+  etl:
+    build: .
+    container_name: cac40_etl
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DB_HOST: db
+    volumes:
+      - ./src:/app/src
+    networks:
+      - finance-network
+    depends_on:
+      db:
+        condition: service_healthy 
+    command: python src/etl.py
+
+  # 3. DASHBOARD (Site Web Streamlit)
+  dashboard:
+    build: ./dashboard
+    container_name: cac40_dashboard
+    restart: always
+    ports:
+      - "8501:8501" 
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - DB_HOST=db
+    volumes:
+      - ./dashboard:/app
+    networks:
+      - finance-network
+    depends_on:
+      db:
+        condition: service_healthy
+
+networks:
+  finance-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
